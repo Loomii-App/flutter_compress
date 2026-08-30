@@ -80,7 +80,6 @@ enum SizeMath {
     return align(Int(w), Int(h), config.alignment)
   }
 
-
   /// Whether the source should be handed back untouched.
   ///
   /// Integer arithmetic on purpose: the same expression runs in Kotlin, Swift
