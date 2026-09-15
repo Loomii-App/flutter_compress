@@ -74,7 +74,11 @@ class CompressionEngine(
     fun estimate(path: String, config: CompressionConfig): Map<String, Any?> {
         val info = MediaProbe.videoInfo(path)
         val durationMs = clampDuration(info["durationMs"] as Long, config)
-        val (tw, th) = SizeMath.targetDimensions(info["width"] as Int, info["height"] as Int, config)
+        // LOO-704: size in *display* space, as iOS already does. See the note in
+        // compress() — Media3 rotates before effects, so a container-space box
+        // letterboxes every quarter-turned source.
+        val (edw, edh) = displayDimensions(info)
+        val (tw, th) = SizeMath.targetDimensions(edw, edh, config)
         val videoBps = SizeMath.videoBitrateBps(config, durationMs, info["bitrateKbps"] as Int, th)
         val audioBps = if (config.removeAudio) 0 else (config.audioBitrateKbps ?: 128) * 1000
         val totalBits = (videoBps + audioBps).toLong() * durationMs / 1000
@@ -105,7 +109,10 @@ class CompressionEngine(
         val srcH = info["height"] as Int
         val originalSize = File(path).length()
         val durationMs = clampDuration(info["durationMs"] as Long, config)
-        val (tw, th) = SizeMath.targetDimensions(srcW, srcH, config)
+        // LOO-704: the frame reaching Presentation has already been rotated by
+        // Media3, so it must be measured in display space. See displayDimensions.
+        val (dispW, dispH) = displayDimensions(info)
+        val (tw, th) = SizeMath.targetDimensions(dispW, dispH, config)
         val videoMime = resolveVideoMime(config.codec)
         val usedCodec = if (videoMime == MimeTypes.VIDEO_H265) "h265" else "h264"
         val videoBps = SizeMath.videoBitrateBps(config, durationMs, info["bitrateKbps"] as Int, th)
@@ -120,7 +127,7 @@ class CompressionEngine(
         var outDurationMs = durationMs
         try {
             val export = runTransformer(
-                id, buildEditedItem(path, config, srcW, srcH, tw, th), outFile, videoMime,
+                id, buildEditedItem(path, config, dispW, dispH, tw, th), outFile, videoMime,
                 encoderSettings(config, videoMime, videoBps), config.notification,
             )
             if (export.durationMs > 0) outDurationMs = export.durationMs
@@ -168,8 +175,29 @@ class CompressionEngine(
         )
     }
 
+    /**
+     * The source's dimensions **as displayed**, i.e. with rotation applied.
+     *
+     * Android reports `METADATA_KEY_VIDEO_WIDTH/HEIGHT` in *container* space: a
+     * portrait phone capture is a 3840x2160 landscape frame plus rotation=90.
+     * Media3's Transformer applies that rotation before the effects pipeline, so
+     * `Presentation` receives an upright 2160x3840 frame — and sizing it from
+     * container dimensions hands it a 16:9 box for a 9:16 picture, which
+     * LAYOUT_SCALE_TO_FIT then letterboxes. The output is a landscape file with
+     * the memory sideways between two black bars, reported as a success.
+     *
+     * iOS never had this: CompressionEngine.swift applies `preferredTransform`
+     * to `naturalSize` before sizing. This brings Android in line.
+     */
+    private fun displayDimensions(info: Map<String, Any?>): Pair<Int, Int> {
+        val w = info["width"] as Int
+        val h = info["height"] as Int
+        val rotation = ((info["rotation"] as? Int) ?: 0).mod(360)
+        return if (rotation == 90 || rotation == 270) h to w else w to h
+    }
+
     private fun buildEditedItem(
-        path: String, config: CompressionConfig, srcW: Int, srcH: Int, tw: Int, th: Int,
+        path: String, config: CompressionConfig, dispW: Int, dispH: Int, tw: Int, th: Int,
     ): EditedMediaItem {
         val item = MediaItem.Builder().setUri(Uri.fromFile(File(path)))
         if (config.trimStartMs != null && config.trimEndMs != null) {
@@ -184,7 +212,7 @@ class CompressionEngine(
         // it unconditionally runs every frame through the GL pipeline, which on
         // slower devices produces frames faster than the encoder drains them —
         // the surface runs out of buffers and frames are silently dropped.
-        val effects = if (tw == srcW && th == srcH) {
+        val effects = if (tw == dispW && th == dispH) {
             Effects(emptyList(), emptyList())
         } else {
             Effects(
