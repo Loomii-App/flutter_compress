@@ -3,7 +3,32 @@ version = "1.0-SNAPSHOT"
 
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
+}
+
+// ⚠️ **The Kotlin plugin is applied here, not in `plugins {}` above, and it has
+// to be.** From AGP 9 the Android plugin compiles Kotlin itself, and a module
+// that *also* applies KGP fails the consuming app's build outright:
+//
+//     The 'org.jetbrains.kotlin.android' plugin is no longer required for
+//     Kotlin support since AGP 9.0.
+//
+// `plugins {}` is resolved before the script body runs and cannot be made
+// conditional, so the declaration has to leave it entirely.
+//
+// ⚠️ **The property check is not redundant with the version check.** AGP 9 lets
+// a project opt back out with `android.builtInKotlin=false`, and in that
+// configuration nothing else supplies Kotlin — so branching on the AGP major
+// alone would leave this module with no Kotlin plugin at all. Several upstream
+// plugins do exactly that; sentry_flutter 9.28.0 is the one that gets it right,
+// and this mirrors it.
+val agpMajor = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION
+    .substringBefore('.')
+    .toInt()
+val builtInKotlin =
+    agpMajor >= 9 && project.findProperty("android.builtInKotlin") != "false"
+
+if (!builtInKotlin) {
+    apply(plugin = "org.jetbrains.kotlin.android")
 }
 
 android {
@@ -49,7 +74,17 @@ android {
     }
 }
 
-kotlin {
+// ⚠️ **Configured through the extension, not the `kotlin { }` accessor.** That
+// accessor is generated from a `plugins {}` declaration, so it stops existing
+// the moment KGP is applied imperatively above — and it never exists at all
+// when AGP 9 provides Kotlin itself. Reaching the extension by type works in
+// every one of those cases.
+//
+// The target must stay 17 to match `compileOptions` above; a mismatch is what
+// Gradle's jvm-target validation rejects.
+project.extensions.configure(
+    org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension::class.java,
+) {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
