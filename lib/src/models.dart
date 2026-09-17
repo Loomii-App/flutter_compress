@@ -125,6 +125,28 @@ class AndroidNotification {
 ///   2. [videoBitrateKbps]  — explicit bitrate
 ///   3. [qualityPercent]    — output bitrate = source bitrate × percent
 ///   4. [quality]           — preset tier (maps to a percentage; fallback)
+/// How the encoder is asked to control its bitrate (Loomii, LOO-723).
+///
+/// ⚠️ **Experimental, added to diagnose a device that refuses CBR.** Upstream
+/// couples the bitrate mode to [VideoCompressConfig.targetSizeMB]: a size
+/// target implies CBR and there is no way to ask for one without the other.
+/// That coupling made three questions inseparable on a Samsung Exynos 2200 —
+/// is CBR refused, is the *size target* refused, or is it the bitrate the
+/// target derives?
+enum VideoBitrateMode {
+  /// Upstream behaviour: CBR when a size target is set and the encoder
+  /// advertises support, otherwise whatever the encoder defaults to.
+  auto,
+
+  /// Request CBR explicitly, with or without a size target.
+  cbr,
+
+  /// Request VBR explicitly — which is *not* the same as `auto` without a
+  /// target. `auto` leaves `KEY_BITRATE_MODE` unset; this sets it. If a device
+  /// rejects this too, the fault is setting the key at all rather than CBR.
+  vbr,
+}
+
 class VideoCompressConfig {
   const VideoCompressConfig({
     this.quality = CompressQuality.medium,
@@ -142,6 +164,8 @@ class VideoCompressConfig {
     this.keepOriginalIfLarger = true,
     this.container = VideoContainer.auto,
     this.minSavingsPercent = 0,
+    this.bitrateMode = VideoBitrateMode.auto,
+    this.encoderPerformanceHints = true,
     this.androidNotification,
   })  : assert(
           qualityPercent == null ||
@@ -183,7 +207,9 @@ class VideoCompressConfig {
         keepOriginalIfLarger = true,
         container = VideoContainer.mp4,
         minSavingsPercent = 0,
-        androidNotification = null;
+        androidNotification = null,
+        bitrateMode = VideoBitrateMode.auto,
+        encoderPerformanceHints = true;
 
   /// Smallest file that still looks acceptable: 720p cap, H.265, aggressive
   /// bitrate. Use for archival or bandwidth-constrained upload.
@@ -204,7 +230,9 @@ class VideoCompressConfig {
         container = VideoContainer.mp4,
         // At this quality a marginal win isn't worth a re-encode.
         minSavingsPercent = 10,
-        androidNotification = null;
+        androidNotification = null,
+        bitrateMode = VideoBitrateMode.auto,
+        encoderPerformanceHints = true;
 
   /// Preset quality tier. Used only when [qualityPercent] is null (and no
   /// higher-priority size control is set).
@@ -285,6 +313,18 @@ class VideoCompressConfig {
   /// container where the platform can, else mp4).
   final VideoContainer container;
 
+  /// How the bitrate is controlled — see [VideoBitrateMode].
+  final VideoBitrateMode bitrateMode;
+
+  /// Whether to send `operating-rate` and `priority` to the encoder.
+  ///
+  /// ⚠️ **Upstream sets these unconditionally**, as a workaround for older
+  /// Qualcomm encoders that drop frames at Media3's default `INT_MAX`
+  /// operating rate. They ride along with every request, including CBR — and a
+  /// vendor HAL that validates the parameter set atomically may reject the
+  /// combination while accepting either alone. False leaves them unset.
+  final bool encoderPerformanceHints;
+
   Map<String, dynamic> toMap() => {
         'quality': quality.name,
         'qualityPercent': qualityPercent,
@@ -301,6 +341,8 @@ class VideoCompressConfig {
         'keepOriginalIfLarger': keepOriginalIfLarger,
         'container': container.name,
         'minSavingsPercent': minSavingsPercent,
+        'bitrateMode': bitrateMode.name,
+        'encoderPerformanceHints': encoderPerformanceHints,
         'androidNotification': androidNotification?.toMap(),
       };
 }

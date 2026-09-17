@@ -245,16 +245,39 @@ class CompressionEngine(
     ): VideoEncoderSettings {
         val builder = VideoEncoderSettings.Builder().setBitrate(videoBps)
         val cbrSupported = supportsCbr(videoMime)
-        val useCbr = config.targetSizeMB != null && cbrSupported
+
+        // ⚠️ **Loomii, LOO-723.** Upstream reads `targetSizeMB != null` alone,
+        // which welds three separate things together: the bitrate mode, the
+        // size target, and the bitrate the target derives. A Samsung Exynos
+        // 2200 refuses CBR at configure() — `code=4003`, "The requested video
+        // encoding format is not supported" — while accepting the identical
+        // clip, codec, dimensions and rate in VBR. With the knobs coupled
+        // there was no way to ask which of the three it objects to.
+        val useCbr = when (config.bitrateMode) {
+            "cbr" -> cbrSupported
+            "vbr" -> false
+            else -> config.targetSizeMB != null && cbrSupported
+        }
         if (useCbr) {
             builder.setBitrateMode(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+        } else if (config.bitrateMode == "vbr") {
+            // ⚠️ Deliberately distinct from leaving the key unset, which is
+            // what "auto" without a target does. If a device rejects this too,
+            // the fault is setting KEY_BITRATE_MODE at all rather than CBR.
+            builder.setBitrateMode(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
         }
         // Media3 defaults `operating-rate` to Integer.MAX_VALUE. MediaCodec's
         // documented sentinel for "as fast as possible" is Short.MAX_VALUE, so
         // INT_MAX is out of contract; older Qualcomm OMX encoders can react to it
         // by dropping input frames. Priority 1 = non-realtime, correct for a
         // transcode (and what Media3 already requests).
-        builder.setEncoderPerformanceParameters(OPERATING_RATE_MAX, PRIORITY_NON_REALTIME)
+        // ⚠️ Sent unconditionally upstream, including alongside CBR. A vendor
+        // HAL that validates the parameter set atomically may reject the
+        // combination while accepting either alone, so this is the other half
+        // of the LOO-723 experiment.
+        if (config.encoderPerformanceHints) {
+            builder.setEncoderPerformanceParameters(OPERATING_RATE_MAX, PRIORITY_NON_REALTIME)
+        }
         return builder.build()
     }
 

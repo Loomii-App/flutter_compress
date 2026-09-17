@@ -11,6 +11,9 @@ data class CompressionConfig(
     val maxHeight: Int?,
     val frameRate: Double?,
     val removeAudio: Boolean,
+    /// "auto" | "cbr" | "vbr" — see VideoBitrateMode (Loomii, LOO-723).
+    val bitrateMode: String,
+    val encoderPerformanceHints: Boolean,
     val audioBitrateKbps: Int?,
     val trimStartMs: Long?,
     val trimEndMs: Long?,
@@ -36,6 +39,9 @@ data class CompressionConfig(
                 maxHeight = (m["maxHeight"] as? Number)?.toInt(),
                 frameRate = (m["frameRate"] as? Number)?.toDouble(),
                 removeAudio = m["removeAudio"] as? Boolean ?: false,
+                bitrateMode = m["bitrateMode"] as? String ?: "auto",
+                encoderPerformanceHints =
+                    m["encoderPerformanceHints"] as? Boolean ?: true,
                 audioBitrateKbps = (m["audioBitrateKbps"] as? Number)?.toInt(),
                 trimStartMs = (trim?.get("startMs") as? Number)?.toLong(),
                 trimEndMs = (trim?.get("endMs") as? Number)?.toLong(),
