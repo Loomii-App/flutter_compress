@@ -12,8 +12,8 @@ data class CompressionConfig(
     val frameRate: Double?,
     val removeAudio: Boolean,
     /// "auto" | "cbr" | "vbr" — see VideoBitrateMode (Loomii, LOO-723).
-    val bitrateMode: String,
-    val encoderPerformanceHints: Boolean,
+    val bitrateMode: String = "auto",
+    val encoderPerformanceHints: Boolean = true,
     val audioBitrateKbps: Int?,
     val trimStartMs: Long?,
     val trimEndMs: Long?,
