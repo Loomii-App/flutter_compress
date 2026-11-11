@@ -9,7 +9,12 @@ enum MediaProbe {
         domain: "flutter_compress", code: 1,
         userInfo: [NSLocalizedDescriptionKey: "No video track"])
     }
-    let size = track.naturalSize.applying(track.preferredTransform)
+    // Container space, as Android reports it: a portrait phone capture is a
+    // landscape frame plus `rotation: 90`. Applying the transform here as well
+    // made iOS report the rotation twice — upright dimensions *and* a quarter
+    // turn — so a caller that rotates by `rotation` turned every portrait
+    // source back onto its side.
+    let size = track.naturalSize
     let fileSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
     return [
       "path": path,

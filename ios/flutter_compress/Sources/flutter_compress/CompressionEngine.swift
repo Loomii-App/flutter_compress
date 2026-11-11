@@ -41,11 +41,18 @@ final class CompressionEngine {
     // Read defensively rather than force-casting: the probe's value types are an
     // implicit cross-file contract, and a force cast would crash the host app
     // instead of surfacing as an `estimate_failed` error.
-    guard let srcW = info["width"] as? Int,
-      let srcH = info["height"] as? Int,
+    guard let probedW = info["width"] as? Int,
+      let probedH = info["height"] as? Int,
+      let rotation = info["rotation"] as? Int,
       let fullDuration = info["durationMs"] as? Int64,
       let srcKbps = info["bitrateKbps"] as? Int
     else { throw Self.probeError }
+    // The probe reports container space; compress() sizes the upright frame,
+    // so a quarter turn swaps the axes to keep the estimate's target box the
+    // one compress() will actually produce.
+    let quarterTurned = rotation == 90 || rotation == 270
+    let srcW = quarterTurned ? probedH : probedW
+    let srcH = quarterTurned ? probedW : probedH
     let durationMs = clampDuration(fullDuration, config)
     let (tw, th) = SizeMath.targetDimensions(srcW: srcW, srcH: srcH, config: config)
     let videoBps = SizeMath.videoBitrateBps(
